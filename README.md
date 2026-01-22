@@ -1,4 +1,4 @@
-# CacaoAPP 🍫
+# CacaoAPP
 
 Aplicación Android para clasificación de cacao usando PyTorch Mobile y Jetpack Compose.
 
