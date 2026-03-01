@@ -39,6 +39,7 @@ android {
         compose = true
     }
     packagingOptions {
+        jniLibs.useLegacyPackaging = true
         exclude("META-INF/DEPENDENCIES")
         exclude("META-INF/LICENSE")
         exclude("META-INF/LICENSE.txt")
