@@ -21,7 +21,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AddPhotoAlternate
@@ -72,7 +74,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --- Funciones de Ayuda (con código restaurado y funcional) ---
+// --- Funciones de Ayuda ---
 fun createImageUri(context: Context): Uri {
     val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
     val imageFileName = "CacaoClassifier_$timeStamp"
@@ -221,23 +223,20 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
     var isProcessing by remember { mutableStateOf(false) }
     var classifier by remember { mutableStateOf<Classifier?>(null) }
 
-    // --- EFECTO DE CARGA CORREGIDO ---
     LaunchedEffect(modelName) {
         isLoadingModel = true
-        classifier = null // Limpia el clasificador anterior al cambiar de modelo
+        classifier = null
         errorMessage = null
         withContext(Dispatchers.IO) {
             try {
-                // 1. Carga el modelo en el hilo de IO (trabajo pesado)
                 val loadedClassifier = Classifier(context, modelName)
-                // 2. Vuelve al hilo principal para actualizar el estado de forma segura
                 withContext(Dispatchers.Main) {
                     classifier = loadedClassifier
                 }
-            } catch (e: Exception) {
-                Log.e("ClassifierScreen", "Error loading model", e)
+            } catch (e: Throwable) { // CAPTURAMOS CUALQUIER ERROR (Incluso nativos)
+                Log.e("ClassifierScreen", "Critical Error loading model", e)
                 withContext(Dispatchers.Main) {
-                    errorMessage = "Error al cargar el modelo: ${e.message}"
+                    errorMessage = "Error Crítico: ${e.javaClass.simpleName}\n${e.message}\n${e.stackTrace.take(3).joinToString("\n")}"
                 }
             }
         }
@@ -245,7 +244,6 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
     }
 
     fun processImage(imageUri: Uri) {
-        // No procesar si el modelo aún no está listo
         if (classifier == null) {
             Toast.makeText(context, "El modelo aún no está listo", Toast.LENGTH_SHORT).show()
             return
@@ -258,8 +256,8 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
             bitmap = withContext(Dispatchers.IO) {
                 try {
                     getCorrectlyOrientedBitmap(context, imageUri)
-                } catch (e: IOException) {
-                    withContext(Dispatchers.Main) { errorMessage = "No se pudo cargar la imagen." }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) { errorMessage = "Error al cargar imagen: ${e.message}" }
                     null
                 }
             }
@@ -269,8 +267,8 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
                     if (predictionResults != null) {
                         results = predictionResults
                     }
-                } catch (e: Exception) {
-                    errorMessage = e.message ?: "Ocurrió un error desconocido."
+                } catch (e: Throwable) {
+                    errorMessage = "Error en predicción: ${e.message}"
                 }
             }
             isProcessing = false
@@ -280,7 +278,7 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? -> uri?.let { processImage(it) } }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
-            val uri = tempImageUri // Copia a variable local para smart cast seguro
+            val uri = tempImageUri
             uri?.let { processImage(it) }
         }
     }
@@ -302,29 +300,31 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
             )
         }
     ) { padding ->
-        if (isLoadingModel) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    CircularProgressIndicator()
-                    Text("Cargando modelo...")
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (isLoadingModel) {
+                CircularProgressIndicator()
+                Text("Cargando modelo...")
+            } else {
+                errorMessage?.let { 
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                        Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp), fontSize = 12.sp)
+                    }
                 }
-            }
-        } else {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
+
                 Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Button(onClick = { galleryLauncher.launch("image/*") }, Modifier.weight(1f), enabled = !isProcessing) {
-                        Icon(Icons.Default.AddPhotoAlternate, contentDescription = "Galería", modifier = Modifier.size(ButtonDefaults.IconSize))
-                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
+                    Button(onClick = { galleryLauncher.launch("image/*") }, Modifier.weight(1f), enabled = !isProcessing && classifier != null) {
+                        Icon(Icons.Default.AddPhotoAlternate, "Galería")
+                        Spacer(Modifier.size(8.dp))
                         Text("Galería")
                     }
-                    Button(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }, Modifier.weight(1f), enabled = !isProcessing) {
-                        Icon(Icons.Default.CameraAlt, contentDescription = "Tomar Foto", modifier = Modifier.size(ButtonDefaults.IconSize))
-                        Spacer(Modifier.size(ButtonDefaults.IconSpacing))
-                        Text("Tomar Foto")
+                    Button(onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) }, Modifier.weight(1f), enabled = !isProcessing && classifier != null) {
+                        Icon(Icons.Default.CameraAlt, "Cámara")
+                        Spacer(Modifier.size(8.dp))
+                        Text("Cámara")
                     }
                 }
 
@@ -334,12 +334,9 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
                     }
                 }
 
-                errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-
                 if (isProcessing) {
-                    Text("Procesando imagen...")
-                } else if (bitmap != null && results.isNotEmpty()) {
-                    Text("Imagen procesada.", fontWeight = FontWeight.Bold)
+                    CircularProgressIndicator()
+                    Text("Procesando...")
                 }
 
                 DetectionResultView(bitmap = bitmap, results = results)
@@ -351,39 +348,26 @@ fun ClassifierScreen(modelName: String, modelTitle: String, onBack: () -> Unit) 
 @Composable
 fun DetectionResultView(bitmap: Bitmap?, results: List<DetectionResult>) {
     if (bitmap == null) {
-        // --- Placeholder con tu imagen personalizada ---
-        Column(
-            modifier = Modifier.fillMaxSize(), // Ocupa todo el espacio disponible
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.cacaito),
-                contentDescription = "Placeholder de Cacao",
-                modifier = Modifier.size(200.dp) // Puedes ajustar el tamaño aquí
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Selecciona o toma una foto para analizar", color = Color.Gray, fontSize = 16.sp, textAlign = TextAlign.Center)
-        }
+        Image(
+            painter = painterResource(id = R.drawable.cacaito),
+            contentDescription = "Placeholder",
+            modifier = Modifier.size(200.dp)
+        )
         return
     }
 
     Box(Modifier.fillMaxWidth().aspectRatio(bitmap.width.toFloat() / bitmap.height.toFloat()).clip(RoundedCornerShape(12.dp))) {
-        Image(bitmap.asImageBitmap(), "Imagen analizada", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        Image(bitmap.asImageBitmap(), "Imagen", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) { 
             val scaleX = size.width / bitmap.width
             val scaleY = size.height / bitmap.height
-
             results.forEach { result ->
                 val box = result.boundingBox
                 val color = when (result.label) {
                     "bueno" -> Color.Green
                     "malo" -> Color.Red
-                    "parcial" -> Color.Blue
-                    else -> Color.Yellow
+                    else -> Color.Blue
                 }
-
-                // Dibuja solo la caja, sin texto
                 drawRect(
                     color = color,
                     topLeft = androidx.compose.ui.geometry.Offset(box.left * scaleX, box.top * scaleY),
