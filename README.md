@@ -13,4 +13,4 @@ Aplicación Android para clasificación de cacao usando PyTorch Mobile y Jetpack
 
 ## Descarga APK
 Descarga la APK desde:  
-**Link:** https://drive.google.com/file/d/1dgQrKeZkDZY_Jhxz7nNEBGGATCHhowyB/view?usp=drive_link
+**Link:** https://drive.google.com/drive/folders/1wHq4EP72-xzKx5kGCPzxSwegKxUhENaE?usp=sharing
